@@ -10,10 +10,35 @@ import keyboard
 from pynput.keyboard import Controller
 from groq import Groq
 from pystray import Icon, MenuItem, Menu
-from PIL import Image, ImageDraw
+from PIL import Image
 
 # Initialize the Groq client
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+languages = {
+    "en": "English",
+    "zh": "Chinese",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "ja": "Japanese",
+    "ru": "Russian",
+    "pt": "Portuguese",
+    "ar": "Arabic",
+    "hi": "Hindi",
+    "ko": "Korean",
+    "it": "Italian",
+    "tr": "Turkish",
+    "vi": "Vietnamese",
+    "pl": "Polish",
+    "uk": "Ukrainian",
+    "ms": "Malay",
+    "th": "Thai",
+    "nl": "Dutch",
+    "id": "Indonesian"
+}
+
+current_code = "en"
 
 # Initialize the keyboard controller
 keyboard_controller = Controller()
@@ -30,11 +55,16 @@ def load_custom_icon():
     # Load the icon.png from the current directory
     return Image.open(os.path.join(os.path.dirname(__file__), "icon.png"))
 
+def load_recording_icon():
+    # Load the rec_icon.png from the current directory
+    return Image.open(os.path.join(os.path.dirname(__file__), "rec_icon.png"))
+
 # Function to start recording audio
 def start_recording(samplerate=16000, channels=1):
     global is_recording, temp_audio_file
     is_recording = True
     temp_audio_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    icon.icon = load_recording_icon()  # Update the icon to recording state
     try:
         def callback(indata, frames, time, status):
             if status:
@@ -51,8 +81,9 @@ def start_recording(samplerate=16000, channels=1):
         print(f"Error during recording: {e}")
     finally:
         print("Recording finished.")
+        icon.icon = load_custom_icon()  # Revert to the default icon after recording
 
-# Function to stop recording audio
+# Updated stop recording function to revert the icon
 def stop_recording():
     global is_recording
     is_recording = False
@@ -63,7 +94,8 @@ def transcribe_audio(filename):
         with open(filename, "rb") as file:
             transcription = client.audio.transcriptions.create(
                 file=(filename, file.read()),
-                model="whisper-large-v3-turbo"
+                model="whisper-large-v3",
+                language=current_code  # Use the language code (e.g., "pt")
             )
         return transcription.text
     except Exception as e:
@@ -83,19 +115,14 @@ def remove_leading_space(input_string):
 def on_hotkey():
     global is_recording, temp_audio_file
     if not is_recording:
-        # Start recording in a separate thread
         threading.Thread(target=start_recording).start()
     else:
-        # Stop recording
         stop_recording()
-        # Ensure recording has time to finalize
-        time.sleep(1)  # Brief delay to ensure file is closed
-        # Transcribe the recorded audio
+        time.sleep(1)  # Allow time for resources to release
         transcription = transcribe_audio(temp_audio_file.name)
-        # Simulate typing the transcription
         type_text(remove_leading_space(transcription))
-        # Clean up the temporary audio file
         try:
+            time.sleep(0.5)  # Brief delay before file deletion
             os.remove(temp_audio_file.name)
             print("Temporary file deleted.")
         except PermissionError:
@@ -103,24 +130,62 @@ def on_hotkey():
         except Exception as e:
             print(f"Error deleting file: {e}")
 
+def change_language(code):
+    global current_code
+    current_code = code
+    print(f"Language changed to: {languages[current_code]}")  # Use code to look up language
+    refresh_menu()  # Refresh the menu to update checked states
+
 # Function to quit the application
 def quit_application(icon, item):
     print("Exiting...")
     icon.stop()
 
-# Create a system tray menu
-menu = Menu(
-    MenuItem("Quit", quit_application)
+def create_language_action(code):
+    def action(item):
+        change_language(code)
+    return action
+
+def refresh_menu():
+    global icon
+    icon.menu = Menu(
+        MenuItem("Quit", quit_application),
+        MenuItem(
+            "Languages",
+            Menu(
+                *[
+                    MenuItem(
+                        language,  # Display the language name
+                        create_language_action(code),  # Use closure to bind the code
+                        checked=lambda item, code=code: current_code == code  # Dynamically check the active language
+                    ) for code, language in languages.items()
+                ]
+            )
+        )
+    )
+
+icon = Icon(
+    "Speech Recognition",
+    load_custom_icon(),
+    menu=Menu(
+        MenuItem("Quit", quit_application),
+        MenuItem(
+            "Languages",
+            Menu(
+                *[
+                    MenuItem(
+                        language,  # Display the language name
+                        create_language_action(code),  # Use the closure for proper binding
+                        checked=lambda item, code=code: current_code == code  # Dynamically check active language
+                    ) for code, language in languages.items()
+                ]
+            )
+        )
+    )
 )
-
-# Start the tray icon
-icon = Icon("Speech Recognition", load_custom_icon(), menu=menu)
-
-def start_tray_icon():
-    icon.run()
 
 # Set up the hotkey listener in a thread
 threading.Thread(target=lambda: keyboard.add_hotkey("win+enter", on_hotkey)).start()
 
 # Run the tray icon in the main thread
-start_tray_icon()
+icon.run()
