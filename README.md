@@ -1,4 +1,6 @@
-### Instruction Manual: Setting Up the Environment Variable for the Groq API Key
+### Instruction Manual
+
+# Setting up your Groq API key
 
 To use the application, you need to set up an environment variable to securely store your Groq API key. Follow the instructions below for your operating system.
 
